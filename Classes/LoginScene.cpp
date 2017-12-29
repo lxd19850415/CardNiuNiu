@@ -51,6 +51,21 @@ static json_t* userList = NULL;
 int Login::synHandlerTag = 0;
 static void on_close(pc_client_t *client, const char *event, void *data);
 
+vector<int > Login::mRoomID;
+vector<int > Login::mGameID;
+vector<int > Login::mCellID;
+vector<int > Login::mScoreMin;
+vector<int > Login::mScoreMax;
+
+
+vector<int > Login::mUserID;
+vector<string > Login::mName;
+vector<string > Login::mSex;
+vector<string > Login::mHeadUrl;
+vector<int > Login::mState;
+
+
+
 void Login::onChatCallback(pc_client_t* client, int ev_type, void* ex_data, const char* arg1, const char* arg2)
 {
 //    json_t* json = (json_t* )data;
@@ -158,6 +173,89 @@ void Login::requstGateCallback(const pc_request_t *req, int status, const char* 
 #endif
 }
 
+void Login::requstLoginCallback(const pc_request_t *req, int status, const char* resp)
+{
+    CCLOG("===>pomelo 请求登录游戏回调 status[%d] resp[%s]",status,resp);
+
+    if(status == -1) {
+        CCLOG("Fail to send request to server.\n");
+    } else if(status == 0) {
+        rapidjson::Document m_doc;
+        m_doc.Parse<0>(resp);
+        if (m_doc.HasParseError())
+        {
+            log("GetParaseError:%s\n", m_doc.GetParseError());
+        }
+        if(m_doc.HasMember("data"))
+        {
+
+            int isNew = -1;
+            auto dataValue = m_doc["data"].GetObject();
+            if(dataValue.HasMember("isNew"))
+            {
+                isNew = dataValue["isNew"].GetInt();
+            }
+
+            if(dataValue.HasMember("player"))
+            {
+
+                auto player = dataValue["player"].GetObject();
+
+                int userId = -1;
+                string userName = "";
+                string sex = "";
+                string headUrl = "";
+
+                if(player.HasMember("userId"))
+                {
+                    userId = player["userId"].GetInt();
+                }
+                if(player.HasMember("name"))
+                {
+                    userName = player["name"].GetString();
+                }
+                if(player.HasMember("sex"))
+                {
+                    sex = player["sex"].GetString();
+                }
+                if(player.HasMember("headurl"))
+                {
+                    headUrl = player["headurl"].GetString();
+                }
+            }
+
+            synHandlerTag = SYN_TAG_LOGIN_REQUEST_CB;
+//            CCLOG("requstGateCallback server response: %s %d\n", connectorHost.c_str(), connectorPort);
+        }
+
+//        connectorHost = json_string_value(json_object_get(resp, "host"));
+//        connectorPort = json_number_value(json_object_get(resp, "port"));
+//        CCLOG("%s %d", connectorHost,connectorPort);
+
+        return;
+    }
+
+    // release relative resource with pc_request_t
+//    json_t *pc_msg = req->msg;
+//    pc_client_t *pc_client = req->client;
+//    json_decref(pc_msg);
+//    pc_request_destroy(req);
+//
+//    pc_client_stop(pc_client);
+
+#if 0
+    pc_client_disconnect(pc_request_client(req));
+
+    pc_client_cleanup(pc_request_client(req));
+
+//    PC_TEST_ASSERT(pc_client_state(pc_request_client(req)) == PC_ST_NOT_INITED);
+
+    free(pc_request_client(req));
+
+    pc_lib_cleanup();
+#endif
+}
+
 void Login::requstRoomListCallback(const pc_request_t *req, int status, const char* resp)
 {
     CCLOG("===>pomelo 请求房间列表回调 status[%d] resp[%s]",status,resp);
@@ -196,29 +294,45 @@ void Login::requstRoomListCallback(const pc_request_t *req, int status, const ch
             int cell = -1;
             int min = -1;
             int max = -1;
-            if(data.HasMember("roomId"))
-            {
-                roomId = data["roomId"].GetInt();
-            }
 
-            if(data.HasMember("gameId"))// 游戏ID，10001 表示牛牛
+            if(data.IsArray())
             {
-                gameId = data["gameId"].GetInt();
-            }
+                for (rapidjson::SizeType i = 0; i < data.Size(); i++)
+                {
+                    const rapidjson::Value &p = data[i];
 
-            if(data.HasMember("cell"))// 底分
-            {
-                cell = data["cell"].GetInt();
-            }
+                    if(p.HasMember("roomId"))
+                    {
+                        roomId = p["roomId"].GetInt();
+                    }
 
-            if(data.HasMember("min"))
-            {
-                min = data["min"].GetInt();
-            }
+                    if(p.HasMember("gameId"))// 游戏ID，10001 表示牛牛
+                    {
+                        gameId = p["gameId"].GetInt();
+                    }
 
-            if(data.HasMember("max"))
-            {
-                max = data["max"].GetInt();
+                    if(p.HasMember("cell"))// 底分
+                    {
+                        cell = p["cell"].GetInt();
+                    }
+
+                    if(p.HasMember("min"))
+                    {
+                        min = p["min"].GetInt();
+                    }
+
+                    if(p.HasMember("max"))
+                    {
+                        max = p["max"].GetInt();
+                    }
+                    mRoomID.push_back(roomId);
+                    mGameID.push_back(gameId);
+                    mCellID.push_back(cell);
+                    mScoreMin.push_back(min);
+                    mScoreMax.push_back(max);
+                }
+
+                synHandlerTag = SYN_TAG_ROOM_LIST_REQUEST_CB;
             }
 
         }
@@ -248,6 +362,170 @@ void Login::requstRoomListCallback(const pc_request_t *req, int status, const ch
 #endif
 }
 
+void Login::requstJoinRoomCallback(const pc_request_t *req, int status, const char* resp)
+{
+    CCLOG("===>pomelo 请求进入房间回调 status[%d] resp[%s]",status,resp);
+    error = 0;
+    if(status == -1) {
+        CCLOG("Fail to send request to server.\n");
+    } else if(status == 0) {
+        rapidjson::Document m_doc;
+        m_doc.Parse<0>(resp);
+        if (m_doc.HasParseError())
+        {
+            log("GetParaseError:%s\n", m_doc.GetParseError());
+        }
+
+        char * errorStr;
+        if(m_doc.HasMember("error"))
+        {
+            errorStr = (char *)m_doc["error"].GetString();
+            error = 1;
+            CCLOG("connect error %s", resp);
+            return;
+        }
+
+//        pomelo_client = req->client;
+
+        pomelo_client = pc_request_client(req);
+
+//        CCLOG("requstRoomListCallback resp [%s]",resp);
+
+        if(m_doc.HasMember("data"))
+        {
+            rapidjson::Value & data = m_doc["data"];
+
+            if(data.HasMember("table"))
+            {
+                rapidjson::Value & dataTable = m_doc["table"];
+                int state = -1;
+                if(dataTable.HasMember("state"))
+                {
+                    state = dataTable["state"].GetInt();// 桌子状态 1空闲
+                }
+                int ds_time = -1;
+                if(dataTable.HasMember("ds_time"))
+                {
+                    ds_time = dataTable["ds_time"].GetInt();// 距离开始毫秒数 -1表示无法开始
+                }
+            }
+
+            if(data.HasMember("users"))
+            {
+                rapidjson::Value & dataUsers = m_doc["users"];
+                int userID;
+                string name;
+                string sex;
+                string headUrl;
+                int state;
+
+                if(dataUsers.IsArray())
+                {
+                    for (rapidjson::SizeType i = 0; i < dataUsers.Size(); i++)
+                    {
+                        const rapidjson::Value &p = dataUsers[i];
+                        if(p.HasMember("userId"))
+                        {
+                            userID = p["userId"].GetInt();
+                        }
+                        if(p.HasMember("name"))// 游戏ID，10001 表示牛牛
+                        {
+                            name = p["name"].GetString();
+                        }
+                        if(p.HasMember("sex"))// 底分
+                        {
+                            sex = p["sex"].GetString();
+                        }
+                        if(p.HasMember("headurl"))
+                        {
+                            headUrl = p["headurl"].GetString();
+                        }
+                        if(p.HasMember("state"))
+                        {
+                            state = p["state"].GetInt();// 玩家状态 1空闲 2准备
+                        }
+                        mUserID.push_back(userID);
+                        mName.push_back(name);
+                        mSex.push_back(sex);
+                        mHeadUrl.push_back(headUrl);
+                        mState.push_back(state);
+                    }
+                    synHandlerTag = SYN_TAG_JOIN_ROOM_REQUEST_CB;
+                }
+            }
+
+            int roomId = -1;
+            int gameId = -1;
+            int cell = -1;
+            int min = -1;
+            int max = -1;
+
+            if(data.IsArray())
+            {
+                for (rapidjson::SizeType i = 0; i < data.Size(); i++)
+                {
+                    const rapidjson::Value &p = data[i];
+
+                    if(p.HasMember("roomId"))
+                    {
+                        roomId = p["roomId"].GetInt();
+                    }
+
+                    if(p.HasMember("gameId"))// 游戏ID，10001 表示牛牛
+                    {
+                        gameId = p["gameId"].GetInt();
+                    }
+
+                    if(p.HasMember("cell"))// 底分
+                    {
+                        cell = p["cell"].GetInt();
+                    }
+
+                    if(p.HasMember("min"))
+                    {
+                        min = p["min"].GetInt();
+                    }
+
+                    if(p.HasMember("max"))
+                    {
+                        max = p["max"].GetInt();
+                    }
+                    mRoomID.push_back(roomId);
+                    mGameID.push_back(gameId);
+                    mCellID.push_back(cell);
+                    mScoreMin.push_back(min);
+                    mScoreMax.push_back(max);
+                }
+
+                synHandlerTag = SYN_TAG_ROOM_LIST_REQUEST_CB;
+            }
+
+        }
+
+//        for (unsigned int i=0; i<json_array_size(users); i++) {
+//            json_t* val = json_array_get(users,i);
+//            userQueue->addObject(CCString::create(json_string_value(val)));
+//        }
+    }
+
+    // release relative resource with pc_request_t
+//    json_t *msg = req->msg;
+//    pc_client_t *client = req->client;
+//    json_decref(msg);
+//    pc_request_destroy(req);
+
+#if 0
+    pc_client_disconnect(pc_request_client(req));
+
+    pc_client_cleanup(pc_request_client(req));
+
+    PC_TEST_ASSERT(pc_client_state(pc_request_client(req)) == PC_ST_NOT_INITED);
+
+    free(pc_request_client(req));
+
+    pc_lib_cleanup();
+#endif
+}
 // disconnect event callback.
 void on_close(pc_client_t *client, const char *event, void *data)
 {
@@ -519,7 +797,7 @@ void Login::dispatchLoginCallbacks(float delta)
         const char *  msg = s.GetString();
 
 //        pc_request_t *request = pc_request_new();
-        void (*connect_cb)(const pc_request_t *req, int status, const char *resp )= &Login::requstConnectorCallback;
+        void (*connect_cb)(const pc_request_t *req, int status, const char *resp )= &Login::requstLoginCallback;
 
         int ret = pc_request_with_timeout(mClient, route, msg, REQ_EX, REQ_TIMEOUT, connect_cb);
         if(ret != PC_RC_OK)
@@ -581,6 +859,37 @@ void Login::dispatchLoginCallbacks(float delta)
 
     }
 
+    if(synHandlerTag == SYN_TAG_ROOM_LIST_REQUEST_CB)
+    {
+        synHandlerTag = SYN_TAG_NONE;
+        const char *route = "game.niuniuHandler.joinRoom";
+
+        int roomID = mRoomID[0];
+
+        StringBuffer s;
+        rapidjson::Writer<StringBuffer> writer(s);
+
+        writer.StartObject();               // Between StartObject()/EndObject(),
+        writer.Key("roomId");                // output a key,
+        writer.Int(roomID);             // follow by a value.
+
+        writer.EndObject();
+
+        const char *  msg = s.GetString();
+
+
+//        pc_request_t *request = pc_request_new();
+        void (*connect_cb)(const pc_request_t *req, int status, const char *resp )= &Login::requstJoinRoomCallback;
+
+        int ret = pc_request_with_timeout(mClient, route, msg, REQ_EX, REQ_TIMEOUT, connect_cb);
+        if(ret != PC_RC_OK)
+        {
+            CCLOG("===>pomelo dispatchLoginCallbacks 发起请求进入房间 ret[%d]",ret);
+        }
+        CCLOG("===>pomelo dispatchLoginCallbacks 发起请求进入房间 route[%s] msg[%s]",route,msg);
+
+    }
+    return;
 
 
     if(pomelo_client == NULL || error == 1) {
